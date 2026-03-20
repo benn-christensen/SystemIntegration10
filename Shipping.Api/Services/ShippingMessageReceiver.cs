@@ -9,6 +9,7 @@ namespace Shipping.Api.Services
         private readonly ILogger<ShippingMessageReceiver> _logger;
         private readonly IConnection _connection;
         private readonly IServiceScopeFactory _scopeFactory;
+        private IChannel _channel; 
 
         public ShippingMessageReceiver(IConnection connection, ILogger<ShippingMessageReceiver> logger, IServiceScopeFactory scopeFactory)
         {
@@ -19,13 +20,13 @@ namespace Shipping.Api.Services
 
         public async Task StartAsync(CancellationToken cancellationToken)
         {
-            using var channel = await _connection.CreateChannelAsync();
-            await channel.QueueDeclareAsync(queue: "shipping_queue",
+            _channel = await _connection.CreateChannelAsync();
+            await _channel.QueueDeclareAsync(queue: "shipping_queue",
                                  durable: false,
                                  exclusive: false,
                                  autoDelete: false,
                                  arguments: null);
-            var consumer = new AsyncEventingBasicConsumer(channel);
+            var consumer = new AsyncEventingBasicConsumer(_channel);
             consumer.ReceivedAsync += async (model, ea) =>
             {
                 var body = ea.Body.ToArray();
@@ -46,13 +47,14 @@ namespace Shipping.Api.Services
                 _logger.LogInformation("Creating shipping order for OrderId: {OrderId}", shippingOrder.OrderId);
                 await Task.CompletedTask;
             };
-            await channel.BasicConsumeAsync(queue: "shipping_queue",
+            await _channel.BasicConsumeAsync(queue: "shipping_queue",
                                  autoAck: true,
                                  consumer: consumer);
         }
 
         public Task StopAsync(CancellationToken cancellationToken)
         {
+            _channel.Dispose();
             _logger.LogInformation("Stopping ShippingMessageReceiver...");
             return Task.CompletedTask;
         }
